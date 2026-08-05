@@ -27,8 +27,10 @@ class TestIsCloudflareChallenge:
             b"challenges.cloudflare.com",
             b"cf-turnstile",
             b"cf_chl_opt",
+            b"cf-chl-",
             b"Just a moment...",
             b"Attention Required! | Cloudflare",
+            b"Checking if the site connection is secure",
         ],
     )
     def test_detects_known_turnstile_markers(self, marker):
