@@ -1,5 +1,6 @@
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 from scrapy import Request, Spider
@@ -120,3 +121,59 @@ def test_files_pipeline_allows_file_requests_without_losing_metadata(tmp_path):
         "allow_offsite": True,
     }
     assert "allow_offsite" not in file_request.meta
+
+
+def test_copy_to_secondary_bucket_omits_acl_when_not_configured(tmp_path):
+    # given a secondary bucket configured but no FILES_STORE_S3_ACL
+    # (FILES_STORE_S3_ACL defaults to "" in gazette/settings.py)
+    crawler = get_crawler(
+        Spider,
+        settings_dict={
+            "FILES_STORE": str(tmp_path),
+            "FILES_STORE_SECONDARY": "s3://secondary-bucket",
+            "FILES_STORE_S3_ACL": "",
+        },
+    )
+    with patch("gazette.pipelines.boto3.client") as boto3_client:
+        s3_client = MagicMock()
+        boto3_client.return_value = s3_client
+        pipeline = QueridoDiarioFilesPipeline.from_crawler(crawler)
+
+        # when a file is copied to the secondary bucket
+        pipeline._copy_to_secondary_bucket(
+            "1234567/2026-01-01/gazette.pdf",
+            b"pdf-bytes",
+            SimpleNamespace(logger=MagicMock()),
+        )
+
+    # then put_object must not be called with an ACL kwarg at all, since ""
+    # is not a valid S3 canned ACL value and boto3 rejects it
+    _, put_object_kwargs = s3_client.put_object.call_args
+    assert "ACL" not in put_object_kwargs
+
+
+def test_copy_to_secondary_bucket_uses_configured_acl(tmp_path):
+    # given a secondary bucket AND an explicit FILES_STORE_S3_ACL
+    crawler = get_crawler(
+        Spider,
+        settings_dict={
+            "FILES_STORE": str(tmp_path),
+            "FILES_STORE_SECONDARY": "s3://secondary-bucket",
+            "FILES_STORE_S3_ACL": "public-read",
+        },
+    )
+    with patch("gazette.pipelines.boto3.client") as boto3_client:
+        s3_client = MagicMock()
+        boto3_client.return_value = s3_client
+        pipeline = QueridoDiarioFilesPipeline.from_crawler(crawler)
+
+        # when a file is copied to the secondary bucket
+        pipeline._copy_to_secondary_bucket(
+            "1234567/2026-01-01/gazette.pdf",
+            b"pdf-bytes",
+            SimpleNamespace(logger=MagicMock()),
+        )
+
+    # then the configured ACL is passed through untouched
+    _, put_object_kwargs = s3_client.put_object.call_args
+    assert put_object_kwargs["ACL"] == "public-read"

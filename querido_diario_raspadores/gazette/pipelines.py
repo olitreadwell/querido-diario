@@ -254,12 +254,15 @@ class QueridoDiarioFilesPipeline(FilesPipeline):
 
         try:
             bucket_name = self.secondary_bucket.replace("s3://", "").rstrip("/")
-            self.s3_client.put_object(
-                Bucket=bucket_name,
-                Key=file_path,
-                Body=file_data,
-                ACL=self.s3_acl,
-            )
+            put_object_kwargs = {
+                "Bucket": bucket_name,
+                "Key": file_path,
+                "Body": file_data,
+            }
+            # Adiciona ACL apenas se configurado; boto3 rejeita ACL vazio ou None
+            if self.s3_acl:
+                put_object_kwargs["ACL"] = self.s3_acl
+            self.s3_client.put_object(**put_object_kwargs)
             spider.logger.info(f"File copied to secondary bucket: {file_path}")
         except Exception as e:
             spider.logger.error(
